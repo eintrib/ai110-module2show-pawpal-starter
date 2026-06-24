@@ -1,0 +1,46 @@
+classDiagram
+    %% PawPal — pet care app class diagram
+
+    class Owner {
+        +int id
+        +string name
+        +string email
+        +string phone
+        +addPet(pet Pet) void
+        +removePet(pet Pet) void
+        +listPets() Pet[]
+    }
+
+    class Pet {
+        +int id
+        +string name
+        +string species
+        +string breed
+        +int age
+        +addTask(task Task) void
+        +listTasks() Task[]
+    }
+
+    class Task {
+        +int id
+        +string title
+        +string description
+        +string type
+        +bool isComplete
+        +markComplete() void
+        +reschedule(date Date) void
+    }
+
+    class Schedule {
+        +int id
+        +Date startDate
+        +Date endDate
+        +addTask(task Task) void
+        +removeTask(task Task) void
+        +getTasksForDay(day Date) Task[]
+    }
+
+    Owner "1" --> "*" Pet : owns
+    Pet "1" --> "*" Task : has
+    Schedule "1" --> "*" Task : organizes
+    Pet "1" --> "1" Schedule : follows
