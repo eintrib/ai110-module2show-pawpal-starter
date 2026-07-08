@@ -4,6 +4,8 @@ Builds a small pet-care setup and prints today's schedule to the terminal.
 Run with:  python main.py
 """
 
+from datetime import date
+
 from pawpal_system import Owner, Pet, Task, Scheduler
 
 
@@ -76,6 +78,18 @@ def main() -> None:
             print(f"  {warning}")
     else:
         print("  No conflicts — every task has the clock to itself.")
+
+    # --- Recurring tasks: completing a daily task spawns the next occurrence ---
+    print("\nRecurring tasks")
+    print("-" * 40)
+    # Rex's dinner is a daily task. Give it a due date of today so the next
+    # occurrence lands on tomorrow (today + 1 day).
+    dinner = next(t for t in rex.tasks if t.description == "Dinner")
+    dinner.due_date = date.today()
+    print(f"  Completing: {dinner}")
+
+    next_dinner = scheduler.complete_task(dinner)
+    print(f"  Auto-created next occurrence: {next_dinner}")
 
 
 if __name__ == "__main__":
