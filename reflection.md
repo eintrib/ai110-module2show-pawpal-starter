@@ -74,25 +74,83 @@ My original scheduler had several small, separately-named methods for querying t
 
 The consolidated version is DRY (one place defines the filtering logic instead of four) and easy to extend — adding a new filter is a new keyword argument rather than a whole new method. The cost is that it relies on "stringly-typed" arguments like `status="pending"`: a typo such as `status="pendign"` is not caught until it fails at runtime, whereas calling a method named `pending_tasks()` cannot be mistyped silently and reads more clearly at the call site.
 
-I did **not** accept the full consolidation as-is. Instead I kept the short named methods as one-line wrappers that delegate to `filter_tasks()` (for example, `pending_tasks()` just returns `filter_tasks(status="pending")`). That way the filtering logic lives in exactly one place (DRY), but the call sites stay readable and typo-proof. I decided the heavier "most Pythonic" option Claude also mentioned — replacing the strings with an `Enum` — was more machinery than this small project needs.
+I did **not** accept the full consolidation as-is. Instead I added `filter_tasks(pet_name=..., status=...)` only for the one case that genuinely needed a *combined* query — filtering by pet and completion status together, which the Streamlit UI uses — and kept the simple named methods (`pending_tasks()`, `completed_tasks()`, `tasks_for_pet()`, `tasks_by_frequency()`) as their own small, clearly-named methods rather than folding everything into one string-argument method. Two of them wouldn't have fit cleanly anyway: `tasks_for_pet()` takes a `Pet` object (matching by identity, not by name, so two same-named pets never collide), and `tasks_by_frequency()` covers a filter `filter_tasks()` deliberately doesn't. Collapsing those into one stringly-typed method would have made the call sites less clear and less precise. I also decided the heavier "most Pythonic" option Claude mentioned — replacing the status strings with an `Enum` — was more machinery than this small project needs.
 
 - Why is that tradeoff reasonable for this scenario?
 
-For a project this size, readability and correctness at the call site matter more than maximum flexibility. Keeping the named wrappers means the demo and UI code reads plainly (`scheduler.pending_tasks()`), while the single `filter_tasks()` core means I only have to fix or extend the logic once. Deferring the `Enum` avoids adding abstraction I do not yet need. If the number of filter combinations grew a lot, I would revisit and introduce the `Enum` for type safety.
+For a project this size, readability and correctness at the call site matter more than maximum flexibility. Keeping the small named methods means the demo and UI code reads plainly (`scheduler.pending_tasks()`), while `filter_tasks()` handles the one place a combined pet-and-status query is actually needed. Deferring the `Enum` avoids adding abstraction I do not yet need. If the number of filter combinations grew a lot, I would revisit — either routing the named methods through `filter_tasks()` or introducing the `Enum` for type safety.
 
 ---
 
 ## 3. AI Collaboration
 
-**a. How you used AI**
+**a. How you used AI — and which features were most effective**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+I used Claude Code (an agentic AI coding assistant) across every phase: design
+review, implementation, refactoring, testing, and documentation. The features
+that mattered most for building the scheduler were:
 
-**b. Judgment and verification**
+- **Whole-file code review.** Claude could read all of `pawpal_system.py` at
+  once and summarize the core behaviors back to me, which is how I decided what
+  was worth testing. That was far faster than re-reading it myself.
+- **Agentic test generation *and execution*.** The biggest win was that Claude
+  didn't just write the 27 pytest cases — it ran `pytest` in the terminal,
+  showed me the passing output, and fixed the small issues (like unused
+  variables) itself. Being able to generate a test and immediately see it go
+  green tightened the loop a lot.
+- **Running `main.py` to produce real output.** When I wanted sample output for
+  the README, Claude ran the script and pasted the *actual* terminal output
+  instead of guessing, which caught that an older README sample was stale.
+- **Inline diff edits.** Editing files as small, reviewable diffs (rather than
+  regenerating whole files) let me see exactly what changed and keep control.
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+The prompts that worked best were **specific and verifiable**: "list the core
+behaviors to test," "what edge cases matter for a scheduler with sorting and
+recurring tasks," and "wire the display logic to the Scheduler methods." Vague
+prompts produced vague code; concrete ones produced code I could immediately
+run and check.
+
+**b. Judgment and verification — a suggestion I modified**
+
+The clearest example is the query-method refactor described in Section 2. Claude
+suggested collapsing my four named methods (`pending_tasks()`,
+`completed_tasks()`, `tasks_for_pet()`, `tasks_by_frequency()`) into a single
+`filter_tasks(...)` method, and also floated replacing the status strings with a
+full `Enum` for type safety. I took the DRY idea but **rejected the most
+aggressive version**: I kept readable, typo-proof named methods at the call
+sites and deferred the `Enum` because it was more machinery than a project this
+size needs. The point was to keep the design clean and legible, not maximally
+abstract.
+
+I verified AI output three ways rather than trusting it: I **ran the test suite**
+(27 passing tests covering sorting, recurrence, conflicts, filtering, and edge
+cases), I **ran `main.py`** to watch the real behavior end-to-end, and I **read
+every diff** before accepting it. When Claude first flagged conflicting rows in
+the Streamlit table by string-matching warning text, I had it switch to
+comparing time values directly, because the string approach would break on
+unpadded times like `"8:00"` vs `"08:00"`.
+
+**c. How separate chat sessions kept me organized**
+
+I ran a different chat session for each phase — design, implementation, testing,
+and documentation. Starting a fresh session for testing meant the assistant's
+attention (and mine) was fully on "what could break," not tangled up in the
+design conversation from earlier. Each session had one clear goal, so the
+context stayed focused, the suggestions stayed on-topic, and I could pick work
+back up later without scrolling through unrelated history. It also made the
+project feel like distinct, finishable milestones instead of one endless thread.
+
+**d. What I learned about being the "lead architect"**
+
+The most important lesson is that a powerful AI tool is an accelerator, not a
+decision-maker. Claude could generate tests, run them, refactor, and draft docs
+in seconds — but it happily produced *plausible* options (the full
+consolidation, the `Enum`, the string-matching table flags) that I had to weigh
+against my own goals for a clean, right-sized design. My job as lead architect
+was to set the direction, ask precise questions, and **verify everything by
+running it** — the tests and `main.py` were my ground truth, not the AI's
+confidence. The AI made me faster; the design judgment and the accountability
+for what shipped stayed mine.
 
 ---
 
