@@ -13,6 +13,7 @@ Relationships:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 
 
 @dataclass
@@ -24,13 +25,37 @@ class Task:
     time: str = ""            # time of day, e.g. "08:00"
     frequency: str = "once"   # "once", "daily", or "weekly"
     is_complete: bool = False
+    # CHANGE: added a calendar date so a recurring task knows *which day* it is
+    # due. Combined with `time`, this pins the task to a real point in time.
+    due_date: date | None = None
     # CHANGE: added a back-reference so a Task can point to its Pet.
     # Original skeleton only allowed top-down navigation (Pet -> Task).
     pet: Pet | None = None
 
+    # How far ahead each frequency repeats. "once" is absent on purpose: a
+    # one-off task has no next occurrence.
+    _REPEAT_INTERVALS = {
+        "daily": timedelta(days=1),
+        "weekly": timedelta(days=7),
+    }
+
     def mark_complete(self) -> None:
         """Mark this task as done."""
         self.is_complete = True
+
+    def next_due_date(self, from_date: date | None = None) -> date | None:
+        """Return the date of this task's next occurrence, or None if one-off.
+
+        Uses ``timedelta`` to advance the date accurately (it rolls month and
+        year boundaries for you, so "daily" on Jan 31 correctly lands on Feb 1).
+        The step is measured from ``from_date`` when given, otherwise from this
+        task's own ``due_date``, otherwise from today.
+        """
+        interval = self._REPEAT_INTERVALS.get(self.frequency)
+        if interval is None:
+            return None  # "once" (or anything unrecognised) does not repeat
+        base = from_date or self.due_date or date.today()
+        return base + interval
 
     def reset(self) -> None:
         """Mark this task as not done (useful for recurring tasks)."""
@@ -45,7 +70,8 @@ class Task:
         """Return a short human-readable summary of the task."""
         status = "done" if self.is_complete else "todo"
         when = self.time or "anytime"
-        return f"[{status}] {when} — {self.description} ({self.frequency})"
+        day = f" {self.due_date.isoformat()}" if self.due_date else ""
+        return f"[{status}]{day} {when} — {self.description} ({self.frequency})"
 
 
 @dataclass
@@ -124,6 +150,19 @@ class Owner:
         existing = [task.id for task in self.all_tasks()]
         return max(existing) + 1 if existing else 1
 
+    def add_task_to_pet(
+        self, pet: Pet, description: str, time: str = "", frequency: str = "once"
+    ) -> Task:
+        """Create a task with a unique id and add it to one specific pet."""
+        task = Task(
+            id=self._next_task_id(),
+            description=description,
+            time=time,
+            frequency=frequency,
+        )
+        pet.add_task(task)
+        return task
+
     def add_task_to_all(
         self, description: str, time: str = "", frequency: str = "daily"
     ) -> list[Task]:
@@ -195,13 +234,102 @@ class Scheduler:
         """Return all tasks matching a given frequency (e.g. 'daily')."""
         return [t for t in self.all_tasks() if t.frequency == frequency]
 
+    def filter_tasks(
+        self,
+        *,
+        pet_name: str | None = None,
+        status: str | None = None,
+    ) -> list[Task]:
+        """Return tasks filtered by pet name and/or completion status.
+
+        Both filters are optional and combine (AND):
+            filter_tasks()                      -> every task
+            filter_tasks(pet_name="Rex")        -> only Rex's tasks
+            filter_tasks(status="pending")      -> only unfinished tasks
+            filter_tasks(pet_name="Rex", status="done")  -> Rex's done tasks
+
+        `status` accepts "done"/"complete" or "pending"/"todo"
+        (case-insensitive). Pet name matching is also case-insensitive.
+        """
+        tasks = self.all_tasks()
+
+        if pet_name is not None:
+            wanted = pet_name.lower()
+            tasks = [t for t in tasks if t.pet and t.pet.name.lower() == wanted]
+
+        if status is not None:
+            key = status.lower()
+            if key in ("done", "complete", "completed"):
+                tasks = [t for t in tasks if t.is_complete]
+            elif key in ("pending", "todo", "incomplete"):
+                tasks = [t for t in tasks if not t.is_complete]
+            else:
+                raise ValueError(f"Unknown status filter: {status!r}")
+
+        return tasks
+
+    @staticmethod
+    def _time_key(task: Task) -> int:
+        """Return a task's time as minutes-since-midnight, for sorting.
+
+        Untimed tasks (time == "") return a large sentinel so they sort to
+        the end. Any unparseable time is treated the same way rather than
+        raising, so one bad string can't break the whole plan.
+        """
+        try:
+            hours, minutes = task.time.split(":")
+            return int(hours) * 60 + int(minutes)
+        except (ValueError, AttributeError):
+            return 24 * 60  # "anytime" / malformed -> after every real time
+
+    def sort_by_time(self, tasks: list[Task] | None = None) -> list[Task]:
+        """Return tasks sorted by time of day (earliest first).
+
+        Works on any list of tasks; defaults to every task the scheduler
+        knows about. Timed tasks come first in chronological order and
+        untimed tasks fall to the bottom. Handles unpadded times like
+        "8:00" correctly because it sorts on minutes, not on the raw string.
+        """
+        source = self.all_tasks() if tasks is None else tasks
+        return sorted(source, key=self._time_key)
+
     def daily_plan(self) -> list[Task]:
         """Return today's pending tasks, ordered by time of day."""
-        pending = self.pending_tasks()
-        # Sort key is a tuple: (has-no-time, time). The bool sorts False (0)
-        # before True (1), so timed tasks come first in time order and
-        # untimed ("anytime") tasks fall to the bottom of the plan.
-        return sorted(pending, key=lambda t: (t.time == "", t.time))
+        return self.sort_by_time(self.pending_tasks())
+
+    def find_conflicts(self, tasks: list[Task] | None = None) -> list[str]:
+        """Return warning messages for tasks scheduled at the same time.
+
+        Lightweight strategy: bucket tasks into time slots (by minutes since
+        midnight, so "8:00" and "08:00" count as the same slot) and flag any
+        slot holding more than one task. Works whether the clash is within one
+        pet or across different pets. Untimed ("anytime") tasks are skipped
+        because they can't collide on a clock.
+
+        Returns a (possibly empty) list of human-readable strings — it never
+        raises, so callers can simply print whatever comes back.
+        """
+        source = self.all_tasks() if tasks is None else tasks
+
+        slots: dict[int, list[Task]] = {}
+        for task in source:
+            if not task.time:
+                continue  # no fixed time -> nothing to conflict with
+            slots.setdefault(self._time_key(task), []).append(task)
+
+        warnings: list[str] = []
+        for minutes, group in sorted(slots.items()):
+            if len(group) < 2:
+                continue  # only one task in this slot -> no conflict
+            when = f"{minutes // 60:02d}:{minutes % 60:02d}"
+            who = ", ".join(
+                f"{t.pet.name if t.pet else 'Unassigned'}'s '{t.description}'"
+                for t in group
+            )
+            warnings.append(
+                f"⚠️  Conflict at {when}: {len(group)} tasks overlap — {who}"
+            )
+        return warnings
 
     def print_daily_plan(self) -> None:
         """Print a clear, well-explained daily plan ordered by time."""
@@ -216,9 +344,38 @@ class Scheduler:
             when = task.time or "anytime"
             print(f"  {when:>7}  {pet_name}: {task.description} ({task.frequency})")
 
-    def complete_task(self, task: Task) -> None:
-        """Mark a given task as complete."""
+    def _next_task_id(self) -> int:
+        """Return an unused task id across every registered pet."""
+        existing = [t.id for t in self.all_tasks()]
+        return max(existing) + 1 if existing else 1
+
+    def complete_task(self, task: Task, today: date | None = None) -> Task | None:
+        """Mark a task complete and, if it recurs, schedule its next occurrence.
+
+        For a "daily" or "weekly" task this creates a *fresh* Task for the next
+        occurrence (a new id, not yet complete), dates it with ``timedelta``
+        (daily -> today + 1 day, weekly -> today + 7 days), and attaches it to
+        the same pet. Returns the newly created Task, or None for a one-off
+        task that does not repeat.
+        """
         task.mark_complete()
+
+        # Base the next occurrence on the completion day, so finishing a daily
+        # task today schedules it for tomorrow (today + 1 day).
+        next_date = task.next_due_date(today or date.today())
+        if next_date is None:
+            return None
+
+        next_task = Task(
+            id=self._next_task_id(),
+            description=task.description,
+            time=task.time,
+            frequency=task.frequency,
+            due_date=next_date,
+        )
+        if task.pet is not None:
+            task.pet.add_task(next_task)  # sets the pet back-reference
+        return next_task
 
     def reset_recurring(self) -> None:
         """Reset daily/weekly tasks so they can be done again next cycle."""

@@ -78,14 +78,54 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
+All scheduling logic lives on the `Scheduler` class (the "brain") in
+[`pawpal_system.py`](pawpal_system.py), with per-task helpers on `Task`.
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Task sorting | `Scheduler.sort_by_time()` (helper: `Scheduler._time_key()`) | Orders tasks by time of day, earliest first |
+| Filtering | `Scheduler.filter_tasks(pet_name=..., status=...)` | Filter by pet name and/or completion status |
+| Conflict handling | `Scheduler.find_conflicts()` | Warns on tasks booked at the same time |
+| Recurring tasks | `Scheduler.complete_task()` + `Task.next_due_date()` | Completing a daily/weekly task spawns its next occurrence |
+
+### Sorting — `Scheduler.sort_by_time()`
+
+Returns tasks ordered by time of day. Instead of sorting on the raw `"HH:MM"`
+string, it converts each time to **minutes since midnight** via the
+`_time_key()` helper, so unpadded times like `"8:00"` sort correctly alongside
+`"08:00"`. Untimed ("anytime") tasks fall to the bottom, and a malformed time
+is treated as untimed rather than raising. It accepts any list of tasks, so it
+composes with the filters below.
+
+### Filtering — `Scheduler.filter_tasks(pet_name=..., status=...)`
+
+One flexible query method. Both arguments are optional and combine with AND:
+
+- `filter_tasks(pet_name="Rex")` — only Rex's tasks
+- `filter_tasks(status="pending")` — only unfinished tasks
+- `filter_tasks(pet_name="Rex", status="done")` — Rex's completed tasks
+
+`status` accepts `"pending"`/`"todo"` or `"done"`/`"complete"`, and both the
+status and pet-name matching are case-insensitive.
+
+### Conflict detection — `Scheduler.find_conflicts()`
+
+A lightweight check that catches double-booking. It buckets tasks into time
+slots (by minutes since midnight, so `"8:00"` and `"08:00"` share a slot) and
+returns a warning message for any slot holding two or more tasks — whether the
+clash is within one pet or across different pets. It **returns a list of
+warning strings and never raises**, so the program keeps running on a conflict.
+Untimed tasks are skipped because they can't collide on a clock.
+
+### Recurring tasks — `Scheduler.complete_task()` + `Task.next_due_date()`
+
+When a `"daily"` or `"weekly"` task is marked complete via
+`complete_task()`, the scheduler automatically creates a fresh `Task` for the
+next occurrence (new id, not yet complete) and attaches it to the same pet.
+`Task.next_due_date()` computes the new date with `datetime.timedelta`
+(daily → today + 1 day, weekly → today + 7 days), which rolls month and year
+boundaries accurately. A one-off (`"once"`) task returns `None` and does not
+repeat.
 
 ## 📸 Demo Walkthrough
 

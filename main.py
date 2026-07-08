@@ -17,35 +17,65 @@ def main() -> None:
     owner.add_pet(rex)
     owner.add_pet(mimi)
 
-    # 3a. Shared routine — every pet gets its own breakfast, walk, and dinner.
-    owner.add_daily_routine()
+    # 3. Add tasks deliberately OUT OF ORDER (dinner before breakfast, etc.)
+    #    to prove that sort_by_time() — not the insertion order — decides the
+    #    final schedule.
+    rex.add_task(Task(id=1, description="Dinner", time="18:00", frequency="daily"))
+    rex.add_task(Task(id=2, description="Morning walk", time="08:00", frequency="daily"))
+    rex.add_task(Task(id=3, description="Grooming", time="10:00", frequency="weekly"))
+    mimi.add_task(Task(id=4, description="Vet visit", time="14:00", frequency="once"))
+    mimi.add_task(Task(id=5, description="Breakfast", time="7:30", frequency="daily"))
+    mimi.add_task(Task(id=6, description="Play time", frequency="daily"))  # no time
 
-    # 3b. Pet-specific tasks — these belong to just one pet.
-    mimi.add_task(Task(id=100, description="Vet visit", time="14:00", frequency="once"))
-    rex.add_task(Task(id=101, description="Grooming", time="10:00", frequency="weekly"))
+    # Two tasks at the SAME time on purpose, to trigger conflict detection:
+    #  - Cross-pet clash: Mimi's feed at 08:00 collides with Rex's 08:00 walk.
+    #  - Same-pet clash: Rex has two different 18:00 tasks at once.
+    mimi.add_task(Task(id=7, description="Feed", time="08:00", frequency="daily"))
+    rex.add_task(Task(id=8, description="Take medication", time="18:00", frequency="daily"))
 
-    # 4. Hand the pets to the scheduler (the "brain") and print the plan.
+    # Mark a couple of tasks done so the status filter has something to show.
+    rex.tasks[1].mark_complete()   # Rex's morning walk
+    mimi.tasks[1].mark_complete()  # Mimi's breakfast
+
+    # 4. Hand the pets to the scheduler (the "brain").
     scheduler = Scheduler()
     scheduler.register_owner(owner)
 
     print(f"Owner: {owner.name}")
     print(f"Pets:  {', '.join(pet.name for pet in owner.list_pets())}\n")
 
-    print("Today's Schedule")
+    # --- Sorting: all tasks, sorted by time even though added out of order ---
+    print("All tasks, sorted by time")
     print("-" * 40)
+    for task in scheduler.sort_by_time():
+        print(f"  {task}")
 
-    # Group tasks that share the same time + description so a shared task
-    # (e.g. Breakfast for every pet) shows both animals on one line instead
-    # of repeating the time. Key preserves the plan's time order.
-    grouped: dict[tuple[str, str, str], list[str]] = {}
-    for task in scheduler.daily_plan():
-        pet_name = task.pet.name if task.pet else "Unassigned"
-        key = (task.time or "anytime", task.description, task.frequency)
-        grouped.setdefault(key, []).append(pet_name)
+    # --- Filtering by pet name (then sorted) ---
+    print("\nRex's tasks only")
+    print("-" * 40)
+    for task in scheduler.sort_by_time(scheduler.filter_tasks(pet_name="Rex")):
+        print(f"  {task}")
 
-    for (when, description, _frequency), pet_names in grouped.items():
-        pets = " & ".join(pet_names)
-        print(f"  {when:>7}  {pets}: {description}")
+    # --- Filtering by completion status (then sorted) ---
+    print("\nStill pending (across all pets)")
+    print("-" * 40)
+    for task in scheduler.sort_by_time(scheduler.filter_tasks(status="pending")):
+        print(f"  {task}")
+
+    print("\nAlready done")
+    print("-" * 40)
+    for task in scheduler.sort_by_time(scheduler.filter_tasks(status="done")):
+        print(f"  {task}")
+
+    # --- Conflict detection: warn (don't crash) on same-time tasks ---
+    print("\nSchedule conflicts")
+    print("-" * 40)
+    conflicts = scheduler.find_conflicts()
+    if conflicts:
+        for warning in conflicts:
+            print(f"  {warning}")
+    else:
+        print("  No conflicts — every task has the clock to itself.")
 
 
 if __name__ == "__main__":

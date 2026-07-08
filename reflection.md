@@ -69,7 +69,16 @@ Why: these changes came from reviewing the skeleton before implementing. The gap
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
+
+My original scheduler had several small, separately-named methods for querying tasks: `pending_tasks()`, `completed_tasks()`, `tasks_for_pet()`, and `tasks_by_frequency()`. When I asked Claude how to simplify, it suggested consolidating all of them into a single, flexible `filter_tasks(pet_name=..., status=..., frequency=...)` method that takes the filter I want as arguments. The tradeoff is between **many explicit named methods** and **one general-purpose method**.
+
+The consolidated version is DRY (one place defines the filtering logic instead of four) and easy to extend — adding a new filter is a new keyword argument rather than a whole new method. The cost is that it relies on "stringly-typed" arguments like `status="pending"`: a typo such as `status="pendign"` is not caught until it fails at runtime, whereas calling a method named `pending_tasks()` cannot be mistyped silently and reads more clearly at the call site.
+
+I did **not** accept the full consolidation as-is. Instead I kept the short named methods as one-line wrappers that delegate to `filter_tasks()` (for example, `pending_tasks()` just returns `filter_tasks(status="pending")`). That way the filtering logic lives in exactly one place (DRY), but the call sites stay readable and typo-proof. I decided the heavier "most Pythonic" option Claude also mentioned — replacing the strings with an `Enum` — was more machinery than this small project needs.
+
 - Why is that tradeoff reasonable for this scenario?
+
+For a project this size, readability and correctness at the call site matter more than maximum flexibility. Keeping the named wrappers means the demo and UI code reads plainly (`scheduler.pending_tasks()`), while the single `filter_tasks()` core means I only have to fix or extend the logic once. Deferring the `Enum` avoids adding abstraction I do not yet need. If the number of filter combinations grew a lot, I would revisit and introduce the `Enum` for type safety.
 
 ---
 
