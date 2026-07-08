@@ -12,15 +12,33 @@ A busy pet owner needs help staying consistent with pet care. They want an assis
 
 Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
 
-## What you will build
+## ✨ Features
 
-Your final app should:
+PawPal+ turns a loose list of pet-care tasks into an ordered, conflict-checked
+daily plan across every pet an owner has. The scheduling logic lives on the
+`Scheduler` class in [`pawpal_system.py`](pawpal_system.py); see
+[Smarter Scheduling](#-smarter-scheduling) below for the implementation details.
 
-- Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
-- Generate a daily schedule/plan based on constraints and priorities
-- Display the plan clearly (and ideally explain the reasoning)
-- Include tests for the most important scheduling behaviors
+- **⏱️ Sorting by time** — builds a single daily plan ordered earliest-first.
+  Times are compared as *minutes since midnight*, so unpadded values like
+  `"8:00"` sort correctly next to `"08:00"`, and untimed ("anytime") tasks fall
+  to the bottom instead of breaking the order.
+- **⚠️ Conflict warnings** — detects double-booking by bucketing tasks into
+  time slots and flagging any slot with two or more tasks — whether the clash is
+  within one pet or across different pets. It returns warning messages and never
+  crashes on a conflict.
+- **🔁 Daily & weekly recurrence** — completing a recurring task automatically
+  spawns its next occurrence, with the date advanced by `timedelta`
+  (daily → +1 day, weekly → +7 days) so month and year boundaries roll over
+  correctly. One-off tasks simply complete and do not repeat.
+- **🔎 Filtering** — query tasks by pet name and/or completion status; the two
+  filters combine with AND and are case-insensitive.
+- **👪 Multi-pet & shared routines** — the scheduler plans across all of an
+  owner's pets at once, and helpers like `add_task_to_all()` and
+  `add_daily_routine()` give every pet its own copy of a shared task.
+- **🖥️ Interactive Streamlit UI** — add pets and tasks, filter the plan, and see
+  sorted results and conflict warnings rendered as tables and alerts
+  ([`app.py`](app.py)).
 
 ## Getting started
 
@@ -41,24 +59,6 @@ pip install -r requirements.txt
 5. Add tests to verify key behaviors.
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
-
-## 🖥️ Sample Output
-
-Running `python main.py` produces the following output, showing the tasks
-sorted into a single time-ordered daily plan across both pets:
-
-```text
-Owner: Britnie
-Pets:  Rex, Mimi
-
-Today's Schedule
-----------------------------------------
-    07:30  Rex & Mimi: Breakfast
-    08:00  Rex & Mimi: Daily walk
-    10:00  Rex: Grooming
-    14:00  Mimi: Vet visit
-    18:00  Rex & Mimi: Dinner
-```
 
 ## 🧪 Testing PawPal+
 
@@ -191,14 +191,108 @@ next occurrence (new id, not yet complete) and attaches it to the same pet.
 boundaries accurately. A one-off (`"once"`) task returns `None` and does not
 repeat.
 
-## 📸 Demo Walkthrough
+## 🎬 Demo Walkthrough
 
-Describe your app in numbered steps so a reader can follow along without watching a video:
+PawPal+ can be used two ways: the interactive **Streamlit app** (`app.py`) for
+day-to-day planning, and the **CLI demo** (`main.py`) that exercises the full
+scheduler in one run.
 
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
+### The Streamlit app
 
-**Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->
+Launch it with:
+
+```bash
+streamlit run app.py
+```
+
+Main features and the actions a user can perform:
+
+- **Owner** — set the owner's name.
+- **Add a Pet** — enter a pet name, pick a species (dog / cat / other), and add
+  it. Added pets are listed back, and the app blocks task creation until at
+  least one pet exists.
+- **Schedule a Task** — choose a pet (or *All pets* for a shared task), then
+  enter a description, a time (`HH:MM`), and a frequency (once / daily / weekly).
+- **Today's Schedule** — the plan renders as a clean table (Time · Pet · Task ·
+  Frequency · Status), with two filters: **Show tasks for** (a specific pet or
+  all) and **Status** (all / pending / done).
+
+### Example workflow
+
+1. **Add a pet** — type `Rex`, species `dog`, click **Add pet**. A success
+   message confirms `Rex` was added.
+2. **Schedule tasks** — add `Morning walk` at `08:00` (daily) and `Dinner` at
+   `18:00` (daily) for Rex; add a shared `Feed` at `08:00` (daily) for *All
+   pets*.
+3. **View today's schedule** — the table shows the tasks sorted by time. Because
+   Rex's walk and the shared feed both sit at `08:00`, a conflict warning
+   appears above the table.
+4. **Filter** — switch **Status** to *Pending* to hide anything already done, or
+   pick a single pet to focus the plan.
+
+### Key Scheduler behaviors shown
+
+- **Sorting by time** — tasks entered out of order (e.g. Dinner before
+  Breakfast) still appear earliest-first; untimed tasks sort to the bottom.
+- **Conflict warnings** — same-time tasks are flagged, both within one pet and
+  across pets, and shown as a prominent alert with an ⚠️ marker on the affected
+  rows.
+- **Filtering** — by pet name and by completion status, combined and
+  case-insensitive.
+- **Daily recurrence** — completing a daily task schedules its next occurrence
+  for the following day.
+
+### Sample CLI output
+
+Running the demo script exercises every behavior above end-to-end:
+
+```bash
+python main.py
+```
+
+```text
+Owner: Britnie
+Pets:  Rex, Mimi
+
+All tasks, sorted by time
+----------------------------------------
+  [done] 7:30 — Breakfast (daily)
+  [done] 08:00 — Morning walk (daily)
+  [todo] 08:00 — Feed (daily)
+  [todo] 10:00 — Grooming (weekly)
+  [todo] 14:00 — Vet visit (once)
+  [todo] 18:00 — Dinner (daily)
+  [todo] 18:00 — Take medication (daily)
+  [todo] anytime — Play time (daily)
+
+Rex's tasks only
+----------------------------------------
+  [done] 08:00 — Morning walk (daily)
+  [todo] 10:00 — Grooming (weekly)
+  [todo] 18:00 — Dinner (daily)
+  [todo] 18:00 — Take medication (daily)
+
+Still pending (across all pets)
+----------------------------------------
+  [todo] 08:00 — Feed (daily)
+  [todo] 10:00 — Grooming (weekly)
+  [todo] 14:00 — Vet visit (once)
+  [todo] 18:00 — Dinner (daily)
+  [todo] 18:00 — Take medication (daily)
+  [todo] anytime — Play time (daily)
+
+Already done
+----------------------------------------
+  [done] 7:30 — Breakfast (daily)
+  [done] 08:00 — Morning walk (daily)
+
+Schedule conflicts
+----------------------------------------
+  ⚠️  Conflict at 08:00: 2 tasks overlap — Rex's 'Morning walk', Mimi's 'Feed'
+  ⚠️  Conflict at 18:00: 2 tasks overlap — Rex's 'Dinner', Rex's 'Take medication'
+
+Recurring tasks
+----------------------------------------
+  Completing: [todo] 2026-07-07 18:00 — Dinner (daily)
+  Auto-created next occurrence: [todo] 2026-07-08 18:00 — Dinner (daily)
+```
