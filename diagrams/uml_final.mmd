@@ -1,0 +1,69 @@
+classDiagram
+    %% PawPal+ — final class diagram (matches pawpal_system.py)
+
+    class Owner {
+        +int id
+        +string name
+        +string email
+        +string phone
+        +Pet[] pets
+        +addPet(pet Pet) void
+        +removePet(pet Pet) void
+        +listPets() Pet[]
+        +allTasks() Task[]
+        +addTaskToPet(pet Pet, description string, time string, frequency string) Task
+        +addTaskToAll(description string, time string, frequency string) Task[]
+        +addDailyRoutine() void
+    }
+
+    class Pet {
+        +int id
+        +string name
+        +string species
+        +string breed
+        +int age
+        +Task[] tasks
+        +Owner owner
+        +addTask(task Task) void
+        +removeTask(task Task) void
+        +listTasks() Task[]
+        +pendingTasks() Task[]
+    }
+
+    class Task {
+        +int id
+        +string description
+        +string time
+        +string frequency
+        +bool isComplete
+        +Date dueDate
+        +Pet pet
+        +markComplete() void
+        +nextDueDate(fromDate Date) Date
+        +reset() void
+        +reschedule(newTime string) void
+    }
+
+    class Scheduler {
+        +Pet[] pets
+        +registerPet(pet Pet) void
+        +registerOwner(owner Owner) void
+        +allTasks() Task[]
+        +pendingTasks() Task[]
+        +completedTasks() Task[]
+        +tasksForPet(pet Pet) Task[]
+        +tasksByFrequency(frequency string) Task[]
+        +filterTasks(petName string, status string) Task[]
+        +sortByTime(tasks Task[]) Task[]
+        +dailyPlan() Task[]
+        +findConflicts(tasks Task[]) string[]
+        +completeTask(task Task, today Date) Task
+        +resetRecurring() void
+        +printDailyPlan() void
+    }
+
+    Owner "1" --> "*" Pet : owns
+    Pet "*" --> "1" Owner : belongs to
+    Pet "1" --> "*" Task : has
+    Task "*" --> "1" Pet : assigned to
+    Scheduler "1" --> "*" Pet : plans across

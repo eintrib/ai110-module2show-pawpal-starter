@@ -98,21 +98,75 @@ st.divider()
 # --- Generate schedule -------------------------------------------------------
 st.subheader("Today's Schedule")
 
-if st.button("Generate schedule"):
-    # Hand the owner's pets to the Scheduler "brain" and ask for the plan.
-    scheduler = Scheduler()
-    scheduler.register_owner(owner)
-    plan = scheduler.daily_plan()
+# Hand the owner's pets to the Scheduler "brain" once; every view below is
+# built from its methods (sorting, filtering, conflict detection).
+scheduler = Scheduler()
+scheduler.register_owner(owner)
 
-    if not plan:
-        st.info("No tasks scheduled yet. Add some above.")
+if not scheduler.all_tasks():
+    st.info("No tasks scheduled yet. Add some above.")
+else:
+    # --- Filters: powered by Scheduler.filter_tasks() ------------------------
+    fcol1, fcol2 = st.columns(2)
+    with fcol1:
+        pet_choice = st.selectbox(
+            "Show tasks for", ["All pets"] + [pet.name for pet in owner.pets]
+        )
+    with fcol2:
+        status_choice = st.selectbox("Status", ["All", "Pending", "Done"])
+
+    filtered = scheduler.filter_tasks(
+        pet_name=None if pet_choice == "All pets" else pet_choice,
+        status=None if status_choice == "All" else status_choice.lower(),
+    )
+    # Scheduler.sort_by_time() orders whatever list we hand it, earliest first.
+    plan = scheduler.sort_by_time(filtered)
+
+    # --- Conflict warnings: powered by Scheduler.find_conflicts() ------------
+    # Check the FULL plan for clashes (not just the filtered view) so a hidden
+    # overlap can't slip past the owner. Surface each conflict prominently and
+    # tell them what to do about it, since a double-booking needs an action.
+    conflicts = scheduler.find_conflicts()
+    if conflicts:
+        st.warning(
+            f"**{len(conflicts)} scheduling conflict"
+            f"{'s' if len(conflicts) > 1 else ''} found** — "
+            "two tasks are booked at the same time. "
+            "Consider rescheduling one so nothing gets missed."
+        )
+        for message in conflicts:
+            st.warning(message)
     else:
-        # Group shared tasks so both pets appear on one line (e.g. "Rex & Mimi").
-        grouped: dict[tuple[str, str, str], list[str]] = {}
+        st.success("✅ No scheduling conflicts — everything is spaced out nicely.")
+
+    # Which time slots clash? Bucket by the Scheduler's own time key (minutes
+    # since midnight) so "8:00" and "08:00" are treated as the same slot when
+    # flagging the affected rows in the table below.
+    slot_counts: dict[int, int] = {}
+    for task in scheduler.all_tasks():
+        if task.time:
+            key = Scheduler._time_key(task)
+            slot_counts[key] = slot_counts.get(key, 0) + 1
+    conflict_slots = {key for key, count in slot_counts.items() if count > 1}
+
+    # --- The plan as a clean table -------------------------------------------
+    if not plan:
+        st.info("No tasks match this filter.")
+    else:
+        rows = []
         for task in plan:
             pet_label = task.pet.name if task.pet else "Unassigned"
-            key = (task.time or "anytime", task.description, task.frequency)
-            grouped.setdefault(key, []).append(pet_label)
-
-        for (when, description, _frequency), names in grouped.items():
-            st.write(f"**{when}** — {' & '.join(names)}: {description}")
+            when = task.time or "anytime"
+            rows.append(
+                {
+                    "Time": when,
+                    "Pet": pet_label,
+                    "Task": task.description,
+                    "Frequency": task.frequency,
+                    "Status": "✅ done" if task.is_complete else "⏳ pending",
+                    "": "⚠️"
+                    if task.time and Scheduler._time_key(task) in conflict_slots
+                    else "",
+                }
+            )
+        st.table(rows)

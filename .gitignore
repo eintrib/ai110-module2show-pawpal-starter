@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 .vscode/
 .DS_Store
+
+# Rendered diagram export (keep the .mmd source, not the PNG)
+diagrams/uml_final.png
